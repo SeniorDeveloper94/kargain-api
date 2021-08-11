@@ -208,14 +208,16 @@ exports.filterAnnouncesAction = (fetchProfile = false, fetchFeed = false, return
             .filter(row => makesFilter.length ? makesFilter.includes(row.manufacturer?.make?.make_slug) : true)
             .filter(row => modelsFilter.length ? modelsFilter.includes(row.manufacturer?.model?.model) : true)
 
-        const total = await AnnounceModel.find(query).count()
+        const total = await AnnounceModel
+            .find(query)
+            .count()
 
         const data = {
             page,
             size,
             query,
             pages: Math.ceil(total / size),
-            total : filtered.length,
+            total,
             rows : !returnCount ? filtered : null
         }
 
@@ -321,9 +323,21 @@ exports.createAnnounceAction = async (req, res, next) => {
                 _id : mongoose.Types.ObjectId(manufacturer?.make?.value)
             })
             if(modelModel && manufacturer?.year){
-                matchModel = await modelModel.findOne({
-                    _id : mongoose.Types.ObjectId(manufacturer?.model?.value)
-                })
+                if(vehicleType === "car"){
+                    matchModel = await modelModel.findOne({
+                        model : manufacturer?.model?.value,
+                        year: manufacturer?.year
+                    })
+                    if(!matchModel) {
+                        matchModel = await modelModel.findOne({
+                            model : manufacturer?.model?.value
+                        })
+                    }
+                } else {
+                    matchModel = await modelModel.findOne({
+                        _id : mongoose.Types.ObjectId(manufacturer?.model?.value)
+                    })
+                }
             }
         }
         
@@ -353,6 +367,14 @@ exports.createAnnounceAction = async (req, res, next) => {
                 make : matchMake?._id,
                 model : matchModel?._id
             }
+        }
+        
+        if(!data.phone){
+            const user = await UserModel.findOne({
+                _id: req.user.id
+                }
+            )
+            data.phone = user?.phone
         }
 
         const announce = new AnnounceModel(data)
@@ -603,7 +625,7 @@ exports.removeUserLikeActionAction = async (req, res, next) => {
 }
 
 exports.mailToShareAnnounce = async (req, res, next) => {
-    if (!req.user) {return next(Errors.UnAuthorizedError(Messages.errors.user_not_found))}
+    // if (!req.user) {return next(Errors.UnAuthorizedError(Messages.errors.user_not_found))}
     if(!req.body.email) {return Errors.Error(Messages.errors.missing_or_invalid_email)}
 
     try {
@@ -611,7 +633,27 @@ exports.mailToShareAnnounce = async (req, res, next) => {
         if(!announce) {return Errors.NotFoundError(Messages.errors.announce_not_found)}
 
         // await AnnounceMailer.shareAnnounceLink({
-        //     fromFullName: req.user.fullname,
+        //     fromFullName: (req.user ? req.user.fullname : "Guest"),
+        //     emailTo: req.body.email,
+        //     announce_link: `${config.frontend}/announces/${announce.toObject().slug}`,
+        //     featured_img_link: announce?.images?.[0]?.location ?? 'https://kargain.s3.eu-west-3.amazonaws.com/uploads/2020/05/30670681-d44d-468e-bf82-533733bb507e.JPG'
+        // })
+
+        return res.json({ success: true, data: { msg : 'sent' }})
+
+    } catch (err){
+        return next(err)
+    }
+}
+
+exports.mailToShareAnnounceWithoutAuth = async (req, res, next) => {
+    if(!req.body.email) {return Errors.Error(Messages.errors.missing_or_invalid_email)}
+    try {
+        const announce = await AnnounceModel.findOneAndUpdate({ slug: req.params.slug })
+        if(!announce) {return Errors.NotFoundError(Messages.errors.announce_not_found)}
+
+        // await AnnounceMailer.shareAnnounceLink({
+        //     fromFullName: "Guest",
         //     emailTo: req.body.email,
         //     announce_link: `${config.frontend}/announces/${announce.toObject().slug}`,
         //     featured_img_link: announce?.images?.[0]?.location ?? 'https://kargain.s3.eu-west-3.amazonaws.com/uploads/2020/05/30670681-d44d-468e-bf82-533733bb507e.JPG'
